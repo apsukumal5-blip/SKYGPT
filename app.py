@@ -1,111 +1,73 @@
 import streamlit as st
-import requests
-from deep_translator import GoogleTranslator
-from datetime import datetime
-import pytz
+import streamlit.components.v1 as components
 
-st.set_page_config(page_title="SkyGPT", page_icon="🛰️", layout="centered")
+st.set_page_config(page_title="SkyGPT", page_icon="🛰️", layout="wide")
 
-# --- CONFIG - YAHAN TAPAIKO NAAM CHA DAI ---
-CREATOR = "Saroj Kumal, Chitwan, Nepal"
-APP_VERSION = "v3.1 Nuclear Proof"
-NASA_KEY = st.secrets.get("NASA_KEY", "DEMO_KEY")
-WEATHER_KEY = st.secrets.get("WEATHER_KEY", "")
+# --- CONFIG - TAPAILE KO NAAM MATRA ---
+CREATOR = "Saroj Kumal"
 
-# --- #1 DATABASE ---
-LOCATIONS = {
-    "mt everest": [27.9881, 86.9250, "Mt Everest Summit"], "everest": [27.9881, 86.9250, "Mt Everest Summit"],
-    "everest base camp": [28.0026, 86.8528, "Everest Base Camp 5364m"], "ebc": [28.0026, 86.8528, "EBC"],
-    "lukla": [27.6869, 86.7314, "Lukla Airport"], "lukla airport": [27.6869, 86.7314, "Lukla Airport"],
-    "kathmandu": [27.7172, 85.3240, "Kathmandu"], "pokhara": [28.2096, 83.9856, "Pokhara"],
-    "denwa": [27.5866, 84.0558, "Denwa Resort, Meghauli"], "meghauli": [27.5866, 84.0558, "Meghauli"],
-    "bharatpur": [27.6833, 84.4333, "Bharatpur"], "annapurna": [28.5956, 83.8203, "Annapurna I"],
-    "k2": [35.8808, 76.5155, "K2"], "tokyo": [35.6762, 139.6503, "Tokyo, Japan"],
-    "pentagon": [38.8719, -77.0563, "The Pentagon, USA"], "iss": [0, 0, "International Space Station"],
+# --- UI - CLEAN, ARU KEHI CHAINA ---
+st.markdown(f"<h2 style='text-align: center; margin-bottom:0;'>🛰️ SkyGPT</h2>", unsafe_allow_html=True)
+st.markdown(f"<p style='text-align: center; margin-top:0; color:grey;'>by {CREATOR}</p>", unsafe_allow_html=True)
+
+# --- LOCATION SEARCH ---
+col1, col2, col3 = st.columns([2,1,2])
+with col2:
+    location = st.text_input(" ", "Mt Everest", label_visibility="collapsed", placeholder="Search: Mt Everest, Lukla, Pentagon...")
+
+# --- COORDINATE DATABASE ---
+coords = {
+    "mt everest": [27.9881, 86.9250], "everest": [27.9881, 86.9250],
+    "everest base camp": [28.0026, 86.8528], "ebc": [28.0026, 86.8528],
+    "lukla": [27.6869, 86.7314], "lukla airport": [27.6869, 86.7314],
+    "kathmandu": [27.7172, 85.3240], "pokhara": [28.2096, 83.9856],
+    "annapurna": [28.5956, 83.8203], "k2": [35.8808, 76.5155],
+    "pentagon": [38.8719, -77.0563], "tokyo": [35.6762, 139.6503],
+    "area 51": [37.2431, -115.7930], "denwa": [27.5866, 84.0558]
 }
+lat, lon = coords.get(location.lower(), [27.9881, 86.9250])
 
-# --- CORE FUNCTIONS - YEI HO NASA KEY USE GARNE CORE KAAM ---
-def get_coords(query):
-    q = query.lower()
-    for key, val in LOCATIONS.items():
-        if key in q: return val[0], val[1], val[2]
-    return 27.5866, 84.0558, "Meghauli, Chitwan"
+# --- NASA WEBWORLDWIND 3D GLOBE ---
+# Yei ho tapaile diyeko 3 ta HTML: BasicExample + GoToLocation + Placemarks ko mix
+# Bootstrap, jQuery sabai hataidiye. 100% NASA Core matra.
+nasa_html = f"""
+<!DOCTYPE html><html><head>
+<meta charset="utf-8">
+<script src="https://files.worldwind.arc.nasa.gov/artifactory/web/0.11.0/worldwind.min.js"></script>
+<style>body{{margin:0; background:black;}}</style>
+</head><body>
+<canvas id="canvasOne" style="width:100%; height:90vh;"></canvas>
+<script>
+    // 1. BasicExample.html ko Globe
+    var wwd = new WorldWind.WorldWindow("canvasOne");
+    wwd.addLayer(new WorldWind.BMNGOneImageLayer());
+    wwd.addLayer(new WorldWind.BMNGLandsatLayer());
+    wwd.addLayer(new WorldWind.BingAerialWithLabelsLayer());
+    wwd.addLayer(new WorldWind.CompassLayer());
+    wwd.addLayer(new WorldWind.ViewControlsLayer(wwd));
 
-def get_live_report(query):
-    lat, lon, name = get_coords(query)
-    q_lower = query.lower()
+    // 2. GoToLocation.html ko Search Feature
+    wwd.goTo(new WorldWind.Position({lat}, {lon}, 25000.0));
 
-    # 1. NASA CORE - ISS
-    if "iss" in q_lower:
-        try:
-            r = requests.get("http://api.open-notify.org/iss-now.json", timeout=8).json()
-            return f"**🛰️ NASA ISS Live**: LAT {r['iss_position']['latitude']} LON {r['iss_position']['longitude']}. Speed: 27,600 km/h. **Built by {CREATOR}**"
-        except:
-            return f"**NASA ISS Error**: API offline. **Built by {CREATOR}**"
+    // 3. PlacemarksAndPicking.html ko Pin Feature
+    var placemarkLayer = new WorldWind.RenderableLayer("Placemarks");
+    wwd.addLayer(placemarkLayer);
+    
+    var placemarkAttributes = new WorldWind.PlacemarkAttributes(null);
+    placemarkAttributes.imageScale = 1;
+    placemarkAttributes.imageColor = WorldWind.Color.RED;
+    placemarkAttributes.labelAttributes.color = WorldWind.Color.YELLOW;
+    placemarkAttributes.labelAttributes.offset = new WorldWind.Offset(
+        WorldWind.OFFSET_FRACTION, 0.5,
+        WorldWind.OFFSET_FRACTION, 1.5);
+    
+    var placemark = new WorldWind.Placemark(new WorldWind.Position({lat}, {lon}, 100));
+    placemark.label = "{location}";
+    placemark.altitudeMode = WorldWind.RELATIVE_TO_GROUND;
+    placemark.attributes = placemarkAttributes;
+    
+    placemarkLayer.addRenderable(placemark);
+</script></body></html>
+"""
 
-    # 2. NASA CORE - ASTEROIDS - NASA_KEY USE GAREKO
-    if "asteroid" in q_lower:
-        try:
-            today = datetime.now().strftime("%Y-%m-%d")
-            url = f"https://api.nasa.gov/neo/rest/v1/feed?start_date={today}&end_date={today}&api_key={NASA_KEY}"
-            neo = requests.get(url, timeout=10).json()
-            return f"**☄️ NASA CNEOS**: {neo['element_count']} NEOs tracked today. Threat Level: GREEN. **Powered by {CREATOR}**"
-        except:
-            return f"**NASA Asteroid Error**: Invalid NASA_KEY or API limit. Get free key: api.nasa.gov. **Built by {CREATOR}**"
-
-    # 3. WEATHER CORE - WEATHER_KEY USE GAREKO
-    if not WEATHER_KEY:
-        return f"""**🛰️ SkyGPT Demo Mode: {name}**
-**Condition**: Clear Sky | **Temp**: 25°C | **Wind**: 5 m/s
-**Climbing Status**: {'EXTREME CAUTION' if 'everest' in q_lower else 'GO'}
-**Pilot Report**: Ceiling 3000ft | Turbulence: Light
-*Add WEATHER_KEY in Streamlit Secrets for Live Data*
-**Built by {CREATOR} | v3.1**"""
-
-    try:
-        url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_KEY}&units=metric"
-        w = requests.get(url, timeout=8).json()
-        temp, feels = w['main']['temp'], w['main']['feels_like']
-        wind, wind_deg = w['wind']['speed'], w['wind'].get('deg', 0)
-        desc = w['weather'][0]['description'].capitalize()
-
-        report = f"**🛰️ SkyGPT Live Intel: {name}**\n"
-        report += f"**Condition**: {desc} | **Temp**: {temp}°C, Feels {feels}°C\n"
-        report += f"**Wind**: {wind_deg}° at {wind*1.944:.0f}kts | **Cloud Ceiling**: {1000 + w['clouds']['all']*50}ft\n"
-
-        if "everest" in q_lower or "climbing" in q_lower:
-            report += f"\n**🧗 Climbing**: Wind Chill {feels-15:.1f}°C. **Status**: {'NO GO' if wind > 20 else 'EXTREME CAUTION'}."
-        if "pilot" in q_lower or "lukla" in q_lower:
-            report += f"\n**✈️ Aviation**: Turbulence: {'Severe' if wind > 15 else 'Light'}. Icing: {'Risk' if temp < 5 else 'None'}."
-        if "tsunami" in q_lower:
-            report += f"\n**🌊 Tsunami**: No active PTWC warnings."
-
-        report += f"\n\n*Data: NASA + OpenWeatherMap | **Built by {CREATOR}** | {APP_VERSION}*"
-        return report
-    except Exception as e:
-        return f"**Live API Error**: {str(e)}. Check WEATHER_KEY. **Built by {CREATOR}**"
-
-# --- UI - 100% CHATGPT CLEAN ---
-st.title("🛰️ SkyGPT")
-st.caption(f"Worldwide Intel by {CREATOR} | {APP_VERSION}")
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-if prompt := st.chat_input("Ask: Mt Everest weather, ISS position..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    with st.chat_message("assistant"):
-        with st.spinner("Accessing NASA Satellites..."):
-            response = get_live_report(prompt)
-            st.markdown(response)
-            st.session_state.messages.append({"role": "assistant", "content": response})
-
-if not st.session_state.messages:
-    st.info(f"**Welcome to SkyGPT {APP_VERSION}**\n\n**Built by {CREATOR}**\n**Powered by NASA + OpenWeatherMap**\n\nTry: `ISS position`, `Mt Everest climbing weather`, `Pilot report Lukla`")
+components.html(nasa_html, height=750)
