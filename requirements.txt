@@ -1,4 +1,5 @@
 streamlit
 requests
 streamlit-js-eval
+deep-translator
 pytz
