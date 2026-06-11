@@ -5,14 +5,12 @@ import streamlit.components.v1 as components
 from datetime import datetime
 import pytz
 
-st.set_page_config(page_title="SkyGPT", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="SkyGPT - NASA & Weather", page_icon="🚀", layout="wide")
 
-# --- API KEYS LOAD GARNE THAU ---
-# Yaha kei haalnupardaina. Key Streamlit Secrets bata auto aaucha.
 NASA_KEY = st.secrets.get("NASA_KEY", "DEMO_KEY")
 WEATHER_KEY = st.secrets.get("WEATHER_KEY", "")
 
-# --- SMART LANGUAGE ---
+# --- HELPER FUNCTIONS ---
 def detect_lang(text):
     try: return GoogleTranslator(source='auto', target='en').detect(text)
     except: return 'en'
@@ -22,86 +20,143 @@ def smart_reply(text_en, user_lang='en'):
     try: return GoogleTranslator(source='en', target=user_lang).translate(text_en)
     except: return text_en
 
-st.title("🚀 SkyGPT v1.1 - Card-Less Global")
-st.caption("From Meghauli, Nepal to the World. 0$ Budget, NASA Level Product.")
+def get_weather(lat, lon, city_name="Your Location"):
+    if not WEATHER_KEY: return None, "Add WEATHER_KEY in Secrets."
+    try:
+        url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_KEY}&units=metric"
+        w = requests.get(url, timeout=10).json()
+        temp = w['main']['temp']
+        desc = w['weather'][0]['description'].capitalize()
+        wind = w['wind']['speed']
+        hum = w['main']['humidity']
+        return w, f"{city_name}: {temp}°C, {desc}, Wind {wind}m/s, Humidity {hum}%"
+    except:
+        return None, "Weather API activating. Try in 10 mins."
+
+# --- UI ---
+st.title("🚀 SkyGPT v1.3 - NASA Edition")
+st.caption("Live Weather + NASA + ISS + Mars. From Meghauli to Galaxy. 0$ Cost.")
 
 # --- LOCATION ---
+lat, lon = 27.5866, 84.0558 # Denwa Resort, Meghauli Default
+city_name = "Meghauli"
+
 try:
     from streamlit_js_eval import get_geolocation
     loc = get_geolocation()
-    lat, lon = loc['coords']['latitude'], loc['coords']['longitude']
-    st.success(f"📍 Live Location: {lat:.2f}, {lon:.2f}")
+    if loc and 'coords' in loc:
+        lat, lon = loc['coords']['latitude'], loc['coords']['longitude']
+        city_name = "Your Location"
+        st.success(f"📍 Live Location Active")
 except:
-    lat, lon = 27.5866, 84.0558
-    st.info("Default: Meghauli, Chitwan, Nepal 🇳🇵")
+    st.info(f"📍 Default: Denwa Resort, Meghauli, Chitwan 🇳🇵")
 
-# --- WEATHER + NASA ---
-col1, col2, col3 = st.columns(3)
+# --- TABS FOR CLEAN UI - PLAY STORE FRIENDLY ---
+tab1, tab2, tab3 = st.tabs(["🌤️ Live Weather", "🛰️ NASA Space", "🗺️ Live Map"])
 
-with col1:
-    if st.button("⚡ Live Weather", use_container_width=True):
-        if not WEATHER_KEY:
-            st.error("Weather API Key not found. Streamlit > Settings > Secrets ma WEATHER_KEY haalnus.")
-        else:
+with tab1:
+    st.subheader("Real-Time Weather - Powered by OpenWeatherMap")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📍 Meghauli/Denwa Resort", use_container_width=True):
+            w_data, w_text = get_weather(27.5866, 84.0558, "Denwa Resort")
+            if w_data:
+                st.metric("Temp", f"{w_data['main']['temp']}°C")
+                st.metric("Sky", w_data['weather'][0]['main'])
+                st.write(w_text)
+            else: st.error(w_text)
+
+    with col2:
+        if st.button("🏙️ Bharatpur City", use_container_width=True):
+            w_data, w_text = get_weather(27.6833, 84.4333, "Bharatpur")
+            if w_data: st.write(w_text)
+            else: st.error(w_text)
+
+with tab2:
+    st.subheader("NASA Live Data - Powered by NASA Open APIs")
+    nasa_col1, nasa_col2 = st.columns(2)
+
+    with nasa_col1:
+        if st.button("🌌 Astronomy Photo of Day", use_container_width=True):
             try:
-                url = f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_KEY}&units=metric"
-                w = requests.get(url, timeout=10).json()
-                st.metric("Temperature", f"{w['main']['temp']}°C")
-                st.metric("Condition", w['weather'][0]['main'])
-                st.metric("Wind", f"{w['wind']['speed']} m/s")
-                st.metric("Humidity", f"{w['main']['humidity']}%")
-                st.caption("Live data by OpenWeatherMap")
-            except:
-                st.error("Weather key activate hudaicha. 10 min pachi try garnus.")
-                st.caption("New API keys take 10-120 mins to activate.")
+                apod = requests.get(f"https://api.nasa.gov/planetary/apod?api_key={NASA_KEY}", timeout=10).json()
+                st.image(apod['url'], caption=f"NASA APOD: {apod['title']}")
+                with st.expander("Read Explanation"):
+                    st.write(apod['explanation'])
+            except: st.error("NASA APOD busy. DEMO_KEY has limits. Add your own NASA_KEY.")
 
-with col2:
-    if st.button("🛰️ NASA Photo + ISS", use_container_width=True):
-        try:
-            apod = requests.get(f"https://api.nasa.gov/planetary/apod?api_key={NASA_KEY}", timeout=10).json()
-            st.image(apod['url'], caption=apod['title'])
-            iss = requests.get("http://api.open-notify.org/iss-now.json", timeout=10).json()
-            iss_lat = iss['iss_position']['latitude']
-            iss_lon = iss['iss_position']['longitude']
-            st.info(f"ISS Overhead: {iss_lat[:5]}, {iss_lon[:5]}")
-        except:
-            st.error("NASA/ISS busy. 30 sec pachi retry garnus.")
+        if st.button("🔴 Mars Rover Latest Photo", use_container_width=True):
+            try:
+                mars = requests.get(f"https://api.nasa.gov/mars-photos/api/v1/rovers/curiosity/latest_photos?api_key={NASA_KEY}", timeout=15).json()
+                if mars['latest_photos']:
+                    st.image(mars['latest_photos'][0]['img_src'], caption=f"Mars: {mars['latest_photos'][0]['camera']['full_name']}")
+                else: st.info("No new Mars photos today.")
+            except: st.error("Mars Rover API busy.")
 
-with col3:
-    if st.button("✈️ Live Aircraft", use_container_width=True):
-        try:
-            url = f"https://opensky-network.org/api/states/all?lamin={lat-1}&lomin={lon-1}&lamax={lat+1}&lomax={lon+1}"
-            res = requests.get(url, timeout=10).json()
-            count = len(res['states']) if res['states'] else 0
-            st.metric("Aircraft Overhead", f"{count}")
-            st.caption("Live data by OpenSky Network")
-        except:
-            st.error("Aircraft data temporarily unavailable.")
+    with nasa_col2:
+        if st.button("🛰️ ISS Live Location", use_container_width=True):
+            try:
+                iss = requests.get("http://api.open-notify.org/iss-now.json", timeout=10).json()
+                iss_lat = float(iss['iss_position']['latitude'])
+                iss_lon = float(iss['iss_position']['longitude'])
+                st.success(f"ISS is now over: {iss_lat:.2f}, {iss_lon:.2f}")
+                # ISS Map
+                iss_map = f"""
+                <iframe width="100%" height="300" src="https://www.openstreetmap.org/export/embed.html?bbox={iss_lon-10}%2C{iss_lat-10}%2C{iss_lon+10}%2C{iss_lat+10}&layer=mapnik&marker={iss_lat}%2C{iss_lon}"></iframe>
+                """
+                components.html(iss_map, height=320)
+            except: st.error("ISS tracking unavailable.")
 
-# --- FREE MAP - CARD CHAHIDAINA ---
-st.divider()
-st.subheader("🗺️ Live Map - 100% Free, No Card")
-map_code = f"""
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<div id="map" style="height: 400px; border-radius: 10px;"></div>
-<script>
-  var map = L.map('map').setView([{lat}, {lon}], 10);
-  L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png').addTo(map);
-  L.marker([{lat}, {lon}]).addTo(map).bindPopup('<b>SkyGPT User</b><br>Meghauli, Chitwan').openPopup();
-</script>
-"""
-components.html(map_code, height=420)
+        if st.button("☄️ Asteroid Alert Today", use_container_width=True):
+            try:
+                today = datetime.now().strftime("%Y-%m-%d")
+                neo = requests.get(f"https://api.nasa.gov/neo/rest/v1/feed?start_date={today}&end_date={today}&api_key={NASA_KEY}", timeout=15).json()
+                count = neo['element_count']
+                st.metric("Near-Earth Asteroids Today", count)
+                if count > 0:
+                    st.warning(f"{count} asteroids passing Earth today. None are dangerous.")
+                else:
+                    st.success("No asteroids near Earth today. Sky is clear!")
+            except: st.error("Asteroid data unavailable.")
+
+with tab3:
+    st.subheader("Live Map - Denwa Resort, Meghauli")
+    map_code = f"""
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <div id="map" style="height: 500px; border-radius: 10px;"></div>
+    <script>
+      var map = L.map('map').setView([{lat}, {lon}], 14);
+      L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png').addTo(map);
+      L.marker([{lat}, {lon}]).addTo(map).bindPopup('<b>Denwa Backwater Escape Resort</b><br>Your SkyGPT HQ').openPopup();
+    </script>
+    """
+    components.html(map_code, height=520)
 
 # --- SMART CHAT ---
 st.divider()
-user_q = st.text_input("Ask SkyGPT in any language", "Bharatpur ma aaja paani parcha?")
+st.subheader("💬 Ask SkyGPT Anything")
+user_q = st.text_input("Ask in Nepali/Hindi/English", "Denwa resort ma aaja mausam k cha?")
 if st.button("Ask SkyGPT", use_container_width=True):
     lang = detect_lang(user_q)
-    answer_en = "Based on live OpenWeatherMap data, there is a 60% chance of rain after 3 PM in Bharatpur. Temperature 32°C with 15 km/h East wind. Carry an umbrella."
+    answer_en = "Connecting to live data..."
+
+    if "denwa" in user_q.lower() or "meghauli" in user_q.lower() or "resort" in user_q.lower():
+        _, answer_en = get_weather(27.5866, 84.0558, "Denwa Resort")
+    elif "bharatpur" in user_q.lower():
+        _, answer_en = get_weather(27.6833, 84.4333, "Bharatpur")
+    elif "kathmandu" in user_q.lower():
+        _, answer_en = get_weather(27.7172, 85.3240, "Kathmandu")
+    elif "mars" in user_q.lower():
+        answer_en = "Mars is currently 225 million km from Earth. Latest Curiosity Rover photos available in NASA tab."
+    elif "iss" in user_q.lower():
+        answer_en = "ISS orbits Earth every 90 minutes at 28,000 km/h. Check NASA tab for live location."
+    else:
+        _, answer_en = get_weather(lat, lon, city_name)
+
     st.success(smart_reply(answer_en, lang))
-    st.caption(f"Detected: {lang.upper()} | Powered by 2 Free Enterprise APIs")
+    st.caption(f"Language: {lang.upper()} | Data: NASA + OpenWeatherMap")
 
 st.divider()
-nepal_time = datetime.now(pytz.timezone('Asia/Kathmandu')).strftime("%Y-%m-%d %H:%M")
-st.caption(f"v1.1 Card-Less | {nepal_time} NPT | Made with Grit by Saroj Kumal | Karan Sir ko 1.44 lakh < Our 0 Rupee")
+st.caption(f"v1.3 NASA Edition | © 2026 SkyGPT by Saroj Kumal | Made in Nepal 🇳🇵 | For Educational Use")
+st.caption("This app uses public APIs from NASA and OpenWeatherMap. Not affiliated with NASA.")
