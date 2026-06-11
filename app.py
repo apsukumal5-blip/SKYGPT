@@ -1,76 +1,54 @@
 import streamlit as st
 import requests
 from datetime import datetime
-import pytz
 
 st.set_page_config(page_title="SkyGPT", page_icon="🚀", layout="wide")
-st.title("🚀 SkyGPT - Live Aakash, Mausam, Bato")
-st.write("From Meghauli to the World. Built by Pain, for the People.")
+st.title("🚀 SkyGPT v0.2 - Live + Fast + World Wide")
+st.write("From Meghauli to the World. Abhaw le Aajeya Banayo.")
 
-# 1. LIVE LOCATION - User ko thau pata laune
+# 1. LOCATION - Denwa dekhi Duniya samma
 try:
     from streamlit_js_eval import get_geolocation
     loc = get_geolocation()
-    if loc:
-        lat = loc['coords']['latitude']
-        lon = loc['coords']['longitude']
-        st.success(f"📍 Tapaiko Live Location: {lat:.2f}, {lon:.2f}")
-    else:
-        lat, lon = 27.5866, 84.0558 # Default: Meghauli, Chitwan
-        st.info("Location milena. Default: Meghauli, Chitwan")
+    lat, lon = loc['coords']['latitude'], loc['coords']['longitude']
+    st.success(f"📍 Live Location: {lat:.2f}, {lon:.2f}")
 except:
-    lat, lon = 27.5866, 84.0558
-    st.info("Location milena. Default: Meghauli, Chitwan")
+    lat, lon = 27.5866, 84.0558 # Meghauli
+    st.info("Default: Meghauli, Chitwan 🇳🇵")
 
-# 2. LIVE MAUSAM - World Wide, Real Time
-def get_live_mausam(lat, lon):
-    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,precipitation,wind_speed_10m&timezone=auto"
-    data = requests.get(url).json()['current']
-    temp = data['temperature_2m']
-    pani = data['precipitation']
-    hawa = data['wind_speed_10m']
-    return temp, pani, hawa
+# 2. LIVE MAUSAM + HAWAA + PAANI
+if st.button("⚡ Live Mausam + Hawa", use_container_width=True):
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,precipitation,wind_speed_10m,wind_direction_10m&timezone=auto"
+    w = requests.get(url).json()['current']
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Taapmaan", f"{w['temperature_2m']}°C")
+    c2.metric("Paani", "Parcha" if w['precipitation'] > 0 else "Pardaina")
+    c3.metric("Hawa Speed", f"{w['wind_speed_10m']} km/h")
+    c4.metric("Hawa Disha", f"{w['wind_direction_10m']}°")
+    if w['precipitation'] > 0: st.warning("Dai chata boknus. Chuhine chano samjhinus.")
 
-# 3. LIVE JAHAAJ - Mathi kun udiracha
-def get_live_plane(lat, lon):
-    url = f"https://opensky-network.org/api/states/all?lamin={lat-1}&lomin={lon-1}&lamax={lat+1}&lomax={lon+1}"
-    try:
-        res = requests.get(url, timeout=5).json()
-        if res['states']:
-            return len(res['states'])
-        return 0
-    except:
-        return 0
+# 3. LIVE ISS - Mathi International Space Station Kaha Cha
+if st.button("🛰️ ISS Kaha Cha Aile?", use_container_width=True):
+    iss = requests.get("http://api.open-notify.org/iss-now.json").json()
+    iss_lat = float(iss['iss_position']['latitude'])
+    iss_lon = float(iss['iss_position']['longitude'])
+    st.map(data=[{"lat": iss_lat, "lon": iss_lon}, {"lat": lat, "lon": lon}])
+    st.info(f"ISS Aile {iss_lat:.2f}, {iss_lon:.2f} ma cha. Tapaiko mathi bata jaala 90 min ma.")
+    st.balloons()
 
-col1, col2, col3 = st.columns(3)
+# 4. LIVE JAHAAJ + BATO
+col1, col2 = st.columns(2)
 with col1:
-    if st.button("Live Mausam Herau", use_container_width=True):
-        temp, pani, hawa = get_live_mausam(lat, lon)
-        st.metric("Taapmaan", f"{temp}°C")
-        st.metric("Paani", "Pariracha" if pani > 0 else "Pardaina")
-        st.metric("Hawa ko Speed", f"{hawa} km/hr")
-        if pani > 0:
-            st.warning("Dai, chata boknus. Meghauli ko chano samjhinus.")
-
+    if st.button("✈️ Mathi Kun Jahaj Cha?", use_container_width=True):
+        url = f"https://opensky-network.org/api/states/all?lamin={lat-1}&lomin={lon-1}&lamax={lat+1}&lomax={lon+1}"
+        res = requests.get(url, timeout=5).json()
+        count = len(res['states']) if res['states'] else 0
+        st.metric("Aakash ma Jahaj", f"{count} ta")
+        
 with col2:
-    if st.button("Mathi Kun Jahaj Cha?", use_container_width=True):
-        plane_count = get_live_plane(lat, lon)
-        st.metric("Live Jahaj", f"{plane_count} ta")
-        if plane_count > 0:
-            st.info("Aakash tira hera dai. Tapai ko sapana jastai udiracha.")
-        st.balloons()
-
-with col3:
-    if st.button("NASA ko Aaja ko Photo", use_container_width=True):
-        url = "https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY"
-        data = requests.get(url).json()
-        st.image(data['url'], caption=data['title'])
-
-# 4. LIVE BATO - Google Map
-st.subheader("Yaha bata kaha janne?")
-destination = st.text_input("Thau ko naam lekhus", "Denwa Backwater Escape Resort")
-if st.button("Bato Dekhau"):
-    st.link_button("Google Map Ma Kholnus", f"https://www.google.com/maps/dir/{lat},{lon}/{destination}")
+    dest = st.text_input("Kaha Janne Ho?", "Bharatpur Airport")
+    if st.button("🗺️ Bato Dekhau"):
+        st.link_button("Google Map Kholnus", f"https://www.google.com/maps/dir/{lat},{lon}/{dest}")
 
 st.write("---")
-st.write("Made with Ris by Saroj Kumal 🇳🇵 | #1 Banna Janmeko App")
+st.write("Made with Ris by Saroj Kumal | Denwa Backwater Escape | #1 Banna Janmeko App")
