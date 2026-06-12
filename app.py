@@ -87,7 +87,7 @@ if prompt := st.chat_input("Ask Earth Anything..."):
                 loc_data = results[0]
                 st.session_state.current_location = loc_data
 
-        # Step 3: Gather All Intel - YEHA INDENT MILAYO
+        # Step 3: Gather All Intel
         weather = get_weather(loc_data['lat'], loc_data['lon'])
         disasters = {"earthquake": get_earthquakes(), "eonet": get_eonet_events()}
         space = {"apod": get_nasa_apod(NASA_KEY), "iss": get_iss_location()}
@@ -101,7 +101,7 @@ if prompt := st.chat_input("Ask Earth Anything..."):
             "space": space
         }
 
-        # Step 4: Get AI Response - YEHA INDENT MILAYO
+        # Step 4: Get AI Response
         response = get_ai_response_multilingual(prompt, context, st.session_state.messages)
 
         typing_placeholder.empty()
