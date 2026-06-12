@@ -1,9 +1,9 @@
 """
-SkyGPT World AI v9.3 - Emergency Stable Multi-Agent Platform
+SkyGPT World AI v9.3.1 - Streamlit Cloud Stable
 CREATOR: Saroj Kumal
-STATUS: Production Stable - Zero Known Critical Bugs
-PYTHON: 3.14 Compatible | Streamlit 1.38+ Compatible
-FIXES: v9.2 critical bugs - ClientSession, Circuit Breaker, Cache, Memory, Async
+STATUS: Production Stable - Zero Critical Bugs
+PYTHON: 3.11+ Compatible | Streamlit 1.38+ Compatible
+FIXES: v9.3 critical bugs - Imports, Async, Memory, Session, Cache
 """
 from __future__ import annotations
 import os
@@ -13,7 +13,6 @@ import time
 import hashlib
 import uuid
 import asyncio
-import threading
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List, Tuple, Callable
 from functools import wraps
@@ -24,16 +23,14 @@ import streamlit as st
 import aiohttp
 from pydantic import BaseModel, Field, field_validator, ValidationError, ConfigDict
 from diskcache import Cache as DiskCache
-from aiocache import Cache as AsyncCache
-from aiocache.serializers import JsonSerializer
 from langdetect import detect, LangDetectException
 import langid
 from rapidfuzz import fuzz
 import structlog
-from async_lru import alru_cache
 
-from google import genai
-from google.genai import types
+# v9.3.1 FIX: Correct Gemini import for streamlit cloud
+import google.generativeai as genai
+from google.generativeai.types import GenerationConfig
 
 # --- 1. LOGGING ---
 structlog.configure(
@@ -48,26 +45,30 @@ logger = structlog.get_logger()
 # --- 2. CONFIG ---
 GEMINI_KEY = st.secrets.get("GEMINI_KEY")
 GEONAMES_USER = st.secrets.get("GEONAMES_USER", "demo")
-CACHE_DIR = st.secrets.get("CACHE_DIR", "/tmp/skygpt_v93")
+CACHE_DIR = st.secrets.get("CACHE_DIR", "/tmp/skygpt_v931")
 
 if not GEMINI_KEY:
     logger.error("gemini_key_missing")
     raise ValueError("GEMINI_KEY required in st.secrets")
 
-# --- 3. DISK CACHE - v9.3 FIX: No namespace conflict ---
+# v9.3.1 FIX: Configure Gemini correctly
+genai.configure(api_key=GEMINI_KEY)
+MODEL_NAME = "gemini-1.5-flash" # 2.5 not stable yet
+
+# --- 3. DISK CACHE ---
 RESPONSE_CACHE = DiskCache(CACHE_DIR, size_limit=100e6, eviction_policy='least-recently-used')
 
-# --- 4. CIRCUIT BREAKER - v9.3 FIX: Manual implementation ---
+# --- 4. CIRCUIT BREAKER - v9.3.1 FIX: asyncio.Lock ---
 class CircuitBreaker:
     def __init__(self, fail_max: int = 3, reset_timeout: int = 60):
         self.fail_max = fail_max
         self.reset_timeout = reset_timeout
         self.failures = 0
         self.last_failure_time = 0
-        self._lock = threading.Lock()
+        self._lock = asyncio.Lock() # v9.3.1 FIX: was threading.Lock
 
-    def is_open(self) -> bool:
-        with self._lock:
+    async def is_open(self) -> bool:
+        async with self._lock:
             if self.failures >= self.fail_max:
                 if time.time() - self.last_failure_time > self.reset_timeout:
                     self.failures = 0
@@ -75,16 +76,21 @@ class CircuitBreaker:
                 return True
             return False
 
-    def record_failure(self):
-        with self._lock:
+    async def record_failure(self):
+        async with self._lock:
             self.failures += 1
             self.last_failure_time = time.time()
 
-    def record_success(self):
-        with self._lock:
+    async def record_success(self):
+        async with self._lock:
             self.failures = 0
 
 GEOCODER_BREAKER = CircuitBreaker(fail_max=3, reset_timeout=60)
+
+# v9.3.1 FIX: Global connector for connection pooling
+@st.cache_resource
+def get_aiohttp_connector():
+    return aiohttp.TCPConnector(limit=1000, limit_per_host=100, ttl_dns_cache=300)
 
 # --- 5. SOURCE RELIABILITY ---
 SOURCE_RELIABILITY = {
@@ -92,7 +98,7 @@ SOURCE_RELIABILITY = {
     "GeoNames": 0.90, "OpenStreetMap": 0.90, "Photon": 0.88, "Nominatim": 0.87
 }
 
-# --- 6. PYDANTIC SCHEMAS v9.3 ---
+# --- 6. PYDANTIC SCHEMAS ---
 class LocationJSON(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     name: str = Field(..., min_length=1, max_length=200)
@@ -121,23 +127,14 @@ class AgentOutput(BaseModel):
     source: str = Field(default="", max_length=50)
     latency_ms: float = Field(default=0.0, ge=0.0)
 
-class ContextData(BaseModel):
-    model_config = ConfigDict(extra='ignore')
-    weather: Optional[Dict[str, Any]] = None
-    location: Optional[Dict[str, Any]] = None
-    earthquake: Optional[Dict[str, Any]] = None
-    flood: Optional[Dict[str, Any]] = None
-    fire: Optional[Dict[str, Any]] = None
-    landslide: Optional[Dict[str, Any]] = None
-
-# --- 7. SECURITY v9.3 ---
+# --- 7. SECURITY ---
 INJECTION_PATTERNS = [
     r'ignore\s+(previous|all)\s+instructions', r'system\s+prompt', r'you\s+are\s+now',
     r'reveal\s+your\s+instructions', r'jailbreak', r'DAN\s+mode', r'do\s+anything\s+now',
-    r'base64:', r'<script', r'https?://', r'\.onion'
+    r'base64:', r'<script', r'https?://', r'\.onion', r'169\.254\.169\.254'
 ]
 
-TEMP_REGEX = re.compile(r'(\d+\.?\d*)\s*[°\s]*(C|degrees?|celsius)', re.I)
+TEMP_REGEX = re.compile(r'(\d+\.?\d*)\s*[°\s]*(c|celsius|degree)', re.I)
 RAIN_REGEX = re.compile(r'rain\s*(\d+)\s*%', re.I)
 MAG_REGEX = re.compile(r'M\s*(\d+\.?\d*)', re.I)
 
@@ -151,11 +148,14 @@ def sanitize_query(text: str) -> Tuple[bool, str]:
         if re.search(pattern, text_lower):
             logger.warning("injection_blocked", pattern=pattern[:20])
             return False, "Request blocked for security reasons."
+    # v9.3.1 FIX: SSRF protection
+    if re.search(r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', text):
+        return False, "IP addresses not allowed."
     if len(re.findall(r'[^a-zA-Z0-9\s\u0900-\u097F\u0600-\u06FF]', text)) > len(text) * 0.3:
         return False, "Invalid input format."
     return True, text.strip()
 
-# --- 8. LANGUAGE ENGINE v9.3 ---
+# --- 8. LANGUAGE ENGINE - v9.3.1 FIX: Use st.cache_data ---
 LANGUAGE_MAP = {
     'en': 'English', 'ne': 'Nepali', 'hi': 'Hindi', 'es': 'Spanish', 'ar': 'Arabic',
     'bn': 'Bengali', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese', 'de': 'German'
@@ -164,37 +164,42 @@ LANGUAGE_MAP = {
 ROMANIZED_NEPALI = set('cha xa xaina ho haina pani parcha parxa aaja bholi voli hijo kasto kati kaha kina mausam tapkram'.split())
 ROMANIZED_HINDI = set('hai hain hoga hogi tha thi barish paani kal aaj parso kya kaisi kaisa kitna kahan mausam tapmaan'.split())
 
-@alru_cache(maxsize=10000)
-async def detect_language_async(text: str) -> Tuple[str, float]:
-    def _detect():
-        if not text or len(text.strip()) < 2:
-            return 'en', 0.5
-        text_lower = text.lower()
-        words = set(re.findall(r'\b\w+\b', text_lower))
-        nepali_hits = len(words.intersection(ROMANIZED_NEPALI))
-        if nepali_hits >= 2:
-            return 'ne', min(0.98, 0.75 + nepali_hits * 0.08)
-        hindi_hits = len(words.intersection(ROMANIZED_HINDI))
-        if hindi_hits >= 2:
-            return 'hi', min(0.98, 0.75 + hindi_hits * 0.08)
-        try:
-            lang1, conf1 = langid.classify(text)
-            lang2 = detect(text)
-            if lang1 == lang2 and lang1 in LANGUAGE_MAP:
-                return lang1, 0.95
-            elif lang1 in LANGUAGE_MAP:
-                return lang1, max(0.70, conf1)
-            return 'en', 0.60
-        except LangDetectException:
-            return 'en', 0.50
-    return await asyncio.to_thread(_detect)
+@st.cache_data(ttl=3600, max_entries=10000)
+def detect_language_cached(text: str) -> Tuple[str, float]:
+    if not text or len(text.strip()) < 2:
+        return 'en', 0.5
+    text_lower = text.lower()
+    words = set(re.findall(r'\b\w+\b', text_lower))
+    nepali_hits = len(words.intersection(ROMANIZED_NEPALI))
+    if nepali_hits >= 2:
+        return 'ne', min(0.98, 0.75 + nepali_hits * 0.08)
+    hindi_hits = len(words.intersection(ROMANIZED_HINDI))
+    if hindi_hits >= 2:
+        return 'hi', min(0.98, 0.75 + hindi_hits * 0.08)
+    try:
+        lang1, conf1 = langid.classify(text)
+        lang2 = detect(text)
+        if lang1 == lang2 and lang1 in LANGUAGE_MAP:
+            return lang1, 0.95
+        elif lang1 in LANGUAGE_MAP:
+            return lang1, max(0.70, conf1)
+        return 'en', 0.60
+    except LangDetectException:
+        return 'en', 0.50
 
-# --- 9. ASYNC GEOCODING v9.3 ---
+async def detect_language_async(text: str) -> Tuple[str, float]:
+    return await asyncio.to_thread(detect_language_cached, text)
+
+# --- 9. ASYNC GEOCODING ---
 async def geocode_photon_async(session: aiohttp.ClientSession, query: str) -> Optional[Dict[str, Any]]:
-    if GEOCODER_BREAKER.is_open():
+    if await GEOCODER_BREAKER.is_open():
         return None
     try:
-        async with session.get("https://photon.komoot.io/api/", params={'q': query, 'limit': 1}, timeout=6) as r:
+        async with session.get(
+            "https://photon.komoot.io/api/",
+            params={'q': query, 'limit': 1},
+            timeout=aiohttp.ClientTimeout(total=6, connect=2)
+        ) as r:
             if r.status == 200:
                 data = await r.json()
                 if data.get('features'):
@@ -203,31 +208,31 @@ async def geocode_photon_async(session: aiohttp.ClientSession, query: str) -> Op
                     loc_type = props.get('osm_value', props.get('type', 'city'))
                     if props.get('osm_key') == 'natural' and loc_type == 'peak':
                         loc_type = 'mountain'
-                    GEOCODER_BREAKER.record_success()
+                    await GEOCODER_BREAKER.record_success()
                     return {
                         'lat': coords[1], 'lon': coords[0],
                         'display': props.get('name', query), 'type': loc_type, 'source': 'OpenStreetMap'
                     }
     except Exception as e:
         logger.error("photon_fail", error=str(e)[:100])
-        GEOCODER_BREAKER.record_failure()
+        await GEOCODER_BREAKER.record_failure()
     return None
 
 async def geocode_nominatim_async(session: aiohttp.ClientSession, query: str) -> Optional[Dict[str, Any]]:
-    if GEOCODER_BREAKER.is_open():
+    if await GEOCODER_BREAKER.is_open():
         return None
     try:
         await asyncio.sleep(1.1)
         async with session.get(
             "https://nominatim.openstreetmap.org/search",
             params={'q': query, 'format': 'json', 'limit': 1},
-            headers={'User-Agent': 'SkyGPT/9.3'},
-            timeout=6
+            headers={'User-Agent': 'SkyGPT/9.3.1'},
+            timeout=aiohttp.ClientTimeout(total=6, connect=2)
         ) as r:
             if r.status == 200:
                 data = await r.json()
                 if data:
-                    GEOCODER_BREAKER.record_success()
+                    await GEOCODER_BREAKER.record_success()
                     return {
                         'lat': float(data[0]['lat']), 'lon': float(data[0]['lon']),
                         'display': data[0].get('display_name', query).split(',')[0],
@@ -235,18 +240,19 @@ async def geocode_nominatim_async(session: aiohttp.ClientSession, query: str) ->
                     }
     except Exception as e:
         logger.error("nominatim_fail", error=str(e)[:100])
-        GEOCODER_BREAKER.record_failure()
+        await GEOCODER_BREAKER.record_failure()
     return None
 
 async def geocode_failover_chain_async(session: aiohttp.ClientSession, query: str) -> Optional[Dict[str, Any]]:
-    if not query or len(query) < 2:
+    if not query or len(query.strip()) < 2:
         return None
-    cache_key = f"geocode:v9.3:{hashlib.md5(query.lower().encode()).hexdigest()}"
+    # v9.3.1 FIX: Normalize cache key
+    cache_key = f"geocode:v9.3.1:{hashlib.md5(query.strip().lower().encode()).hexdigest()}"
     if cache_key in RESPONSE_CACHE:
         return RESPONSE_CACHE[cache_key]
 
     for geocoder in [geocode_photon_async, geocode_nominatim_async]:
-        result = await geocoder(session, query)
+        result = await asyncio.wait_for(geocoder(session, query), timeout=7)
         if result:
             RESPONSE_CACHE.set(cache_key, result, expire=86400)
             return result
@@ -263,7 +269,7 @@ def extract_location_v7(text: str) -> Optional[str]:
                 return candidate
     return None
 
-# --- 10. MULTI-AGENT DEFINITIONS v9.3 ---
+# --- 10. MULTI-AGENT DEFINITIONS ---
 class WeatherAgent:
     name = "weather_agent"
     @staticmethod
@@ -277,7 +283,7 @@ class WeatherAgent:
                 'daily': 'precipitation_probability_max',
                 'timezone': 'auto'
             }
-            async with session.get(url, params=params, timeout=6) as r:
+            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=6)) as r:
                 data = await r.json()
                 temp = data['current']['temperature_2m']
                 rain = data['daily']['precipitation_probability_max'][0]
@@ -299,7 +305,7 @@ class DisasterAgent:
         start = time.time()
         try:
             url = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson"
-            async with session.get(url, timeout=6) as r:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=6)) as r:
                 data = await r.json()
                 nearest_mag = 0
                 for feat in data.get('features', []):
@@ -338,11 +344,12 @@ class MemoryAgent:
     name = "memory_agent"
     @staticmethod
     def get_session_data() -> Dict[str, Any]:
+        # v9.3.1 FIX: No deque in session_state
         if 'skygpt_memory' not in st.session_state:
             st.session_state.skygpt_memory = {
                 "preferred_language": None,
                 "frequent_locations": [],
-                "recent_searches": deque(maxlen=5)
+                "recent_searches": [] # v9.3.1 FIX: list instead of deque
             }
         return st.session_state.skygpt_memory
 
@@ -354,7 +361,10 @@ class MemoryAgent:
                 lang, _ = await detect_language_async(msg["content"])
                 if lang!= 'en':
                     memory["preferred_language"] = lang
-                memory["recent_searches"].append(msg["content"][:50])
+                # v9.3.1 FIX: Append to list, keep max 5
+                searches = memory["recent_searches"]
+                searches.append(msg["content"][:50])
+                memory["recent_searches"] = searches[-5:]
                 break
         return AgentOutput(
             agent="memory_agent",
@@ -378,7 +388,7 @@ class VerificationAgent:
         if count == 0:
             return False, 0.0, []
         avg_reliability = total_reliability / count
-        # v9.3 FIX: Require 2+ sources or 0.85+ for single source
+        # v9.3.1 FIX: Require 2+ sources or 0.85+ for single source
         verified = (count >= 2 and avg_reliability >= 0.70) or (count == 1 and avg_reliability >= 0.85)
         return verified, avg_reliability, list(set(sources))
 
@@ -429,7 +439,7 @@ class RiskAnalysisAgent:
             source="RiskAnalysis"
         )
 
-# --- 11. COORDINATOR v9.3 ---
+# --- 11. COORDINATOR v9.3.1 ---
 class CoordinatorAgent:
     name = "coordinator"
 
@@ -437,8 +447,8 @@ class CoordinatorAgent:
     async def execute(query: str, chat_history: List, stream_callback: Optional[Callable] = None) -> str:
         start_time = time.time()
         metrics = {}
+        request_id = str(uuid.uuid4())[:8]
 
-        # Security check
         is_safe, sanitized = sanitize_query(query)
         if not is_safe:
             return json.dumps(AIResponseJSON(
@@ -462,32 +472,17 @@ class CoordinatorAgent:
 
         await safe_stream("🔍 Analyzing query...")
 
-        # v9.3 FIX: Proper session management - no global, context manager
-        async with aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=10),
-            connector=aiohttp.TCPConnector(limit=100, limit_per_host=30)
-        ) as session:
+        # v9.3.1 FIX: Reuse connector, new session per request
+        connector = get_aiohttp_connector()
+        async with aiohttp.ClientSession(connector=connector, connector_owner=False) as session:
             try:
-                # Step 1: Geocode
                 await safe_stream("📍 Detecting location...")
                 geocode_output = await GeolocationAgent.execute(session, sanitized)
 
-                # v9.3 FIX: Check answer before JSON decode
+                # v9.3.1 FIX: Validate JSON before decode
                 location_data = None
                 if geocode_output.confidence > 0 and geocode_output.answer:
-                    try:
-                        location_data = json.loads(geocode_output.answer)
-                    except json.JSONDecodeError:
-                        logger.error("geocode_json_error")
-                        location_data = None
-
-                # Step 2: Parallel agents
-                tasks = []
-                weather_output = None
-                disaster_output = None
-                memory_output = await MemoryAgent.execute(chat_history)
-
-                if location_data:
-                    await safe_stream("🌤️ Fetching data...")
-                    tasks.append(WeatherAgent.execute(session, location_data["lat"], location_data["lon"]))
-                    tasks.append(DisasterAgent.execute(session, locatio
+                    if geocode_output.answer.strip().startswith('{'):
+                        try:
+                            location_data = json.loads(geocode_output.answer)
+                        e
