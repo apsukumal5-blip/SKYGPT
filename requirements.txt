@@ -1,5 +1,6 @@
-streamlit
+tenacity
 requests
 google-generativeai
 streamlit-chat
 tenacity
+pytz
