@@ -1,7 +1,10 @@
-tenacity
-requests
-google-generativeai
-streamlit-chat
-tenacity
-pytz
+streamlit
+google-genai
 langdetect
+langid
+requests
+pydantic
+diskcache
+structlog
+cachetools
+python-rapidfuzz
