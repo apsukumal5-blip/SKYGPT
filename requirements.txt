@@ -4,3 +4,4 @@ google-generativeai
 streamlit-chat
 tenacity
 pytz
+langdetect
