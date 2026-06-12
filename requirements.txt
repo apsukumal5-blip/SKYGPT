@@ -3,3 +3,4 @@ requests
 streamlit-js-eval
 deep-translator
 pytz
+google-generativeai
