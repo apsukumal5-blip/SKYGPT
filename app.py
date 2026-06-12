@@ -4,7 +4,7 @@ CREATOR: Saroj Kumal
 MISSION: World's Most Useful Earth Intelligence AI
 """
 import streamlit as st
-from brain import get_ai_response, extract_location_with_gemini
+from brain import get_ai_response_multilingual, extract_location_multilingual
 from data_sources import geocode_nominatim, geocode_photon, get_weather, get_earthquakes, get_eonet_events, get_nasa_apod, get_iss_location
 from risk_engine import assess_flood_risk, assess_landslide_risk, get_earthquake_advice
 from ui import render_header, render_sidebar, render_chat_history, render_typing_indicator, render_footer
@@ -39,15 +39,20 @@ if prompt := st.chat_input("Ask Earth Anything..."):
         with typing_placeholder:
             render_typing_indicator()
 
-        # Step 1: Location Detection - Global Intelligence
-        location_query = extract_location_with_gemini(prompt) or prompt
+        
+            if not results:
+                response = f"📍 Could not find '{location_query}'. Try: 'City, Country' format."
+                
+              # Step 1: Location Detection - Multilingual Global Intelligence
+        lang_code = detect_user_language(prompt) # Detect first
+        location_query = extract_location_multilingual(prompt, lang_code) or prompt
 
-        # Use last location for follow-ups like "what about tomorrow"
+        # Use last location for follow-ups like "भोलि?" or "tomorrow?"
         if not location_query or location_query.lower() == "none":
             if st.session_state.current_location:
                 loc_data = st.session_state.current_location
             else:
-                response = "📍 Which location? Please specify city and country. Eg: 'Kathmandu, Nepal'"
+                response = get_ai_response_multilingual("Ask user for location", {"error": "no_location"}, st.session_state.messages)
                 st.session_state.messages.append({"role": "assistant", "content": response})
                 typing_placeholder.empty()
                 st.rerun()
@@ -55,9 +60,8 @@ if prompt := st.chat_input("Ask Earth Anything..."):
             # Multi-Geocoder Fallback
             results = geocode_nominatim(location_query)
             if not results: results = geocode_photon(location_query)
-
-            if not results:
-                response = f"📍 Could not find '{location_query}'. Try: 'City, Country' format."
+            # ... rest same
+            
                 st.session_state.messages.append({"role": "assistant", "content": response})
                 typing_placeholder.empty()
                 st.rerun()
@@ -84,7 +88,7 @@ if prompt := st.chat_input("Ask Earth Anything..."):
         }
 
         # Step 3: Get AI Response
-        response = get_ai_response(prompt, context, st.session_state.messages)
+        response = get_ai_response_multilingual(prompt, context, st.session_state.messages)
 
         typing_placeholder.empty()
         st.session_state.messages.append({"role": "assistant", "content": response})
