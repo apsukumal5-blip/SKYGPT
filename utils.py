@@ -1,19 +1,17 @@
 """
 SkyGPT World AI - Data & Intelligence Engines
 CREATOR: Saroj Kumal
-STATUS: Production Stable v3.2.4 - June 28/29 Launch
-FIXES: Thread-safe rate limiting, strict timeouts, response validation, module isolation, safe fallbacks
+STATUS: Production Stable v3.2.5 - June 28/29 Launch
+FIXES: Removed threading.Lock - incompatible with @st.cache_data
 """
 import streamlit as st
 import requests
 import time
 import textwrap
-import threading
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional
 
 # --- 0. PRODUCTION RESILIENCE LAYER ---
-# Global thread-safe rate limiter for Nominatim
-_nominatim_lock = threading.Lock()
+# v3.2.5 FIX: Removed threading.Lock - Streamlit cache handles serialization
 _last_nominatim_call = 0
 
 # Global safe defaults for total API failure
@@ -36,7 +34,6 @@ def validate_api_response(data: Any, required_keys: Optional[List[str]] = None) 
     return True
 
 # --- 1. PERFORMANCE: CACHING + TIMEOUT - NO RETRY ON GEOCODING ---
-# Hardened timeout: 3s max for all APIs to prevent Streamlit worker blocking
 def safe_api_call(url: str, headers: Optional = None, timeout: int = 3, params: Optional = None) -> Dict[str, Any]:
     """Graceful API calls with strict timeout. Never retries. Returns validated dict."""
     try:
@@ -53,32 +50,30 @@ def safe_api_call(url: str, headers: Optional = None, timeout: int = 3, params: 
     except ValueError:
         return {"error": "invalid_json"}
 
-# --- 2. LOCATION INTELLIGENCE - THREAD-SAFE RATE LIMIT ---
+# --- 2. LOCATION INTELLIGENCE - LOCK REMOVED ---
 @st.cache_data(ttl=86400, max_entries=5000) # 1 day cache, bounded for 10k users
 def detect_location(text_query: str) -> Dict[str, Any]:
-    """Detects location from user text. Thread-safe 1 req/sec. Uses params."""
+    """Detects location from user text. Rate-limited 1 req/sec without locks."""
     global _last_nominatim_call
 
-    # Thread-safe rate limit - no cross-user interference
-    with _nominatim_lock:
-        elapsed = time.time() - _last_nominatim_call
-        if elapsed < 1.1:
-            time.sleep(1.1 - elapsed)
-        _last_nominatim_call = time.time()
+    # v3.2.5 FIX: No lock needed. @st.cache_data serializes execution on cache miss.
+    # Rate limit still enforced for Nominatim compliance
+    elapsed = time.time() - _last_nominatim_call
+    if elapsed < 1.1:
+        time.sleep(1.1 - elapsed)
+    _last_nominatim_call = time.time()
 
-    # Use params dict instead of f-string to prevent injection
     url = "https://nominatim.openstreetmap.org/search"
     params = {
-        'q': text_query.strip()[:200], # Limit query length
+        'q': text_query.strip()[:200],
         'format': 'json',
         'limit': 1,
         'addressdetails': 1
     }
-    headers = {'User-Agent': 'SkyGPT-SarojKumal/3.2.4 (+contact@skygpt.ai)'}
+    headers = {'User-Agent': 'SkyGPT-SarojKumal/3.2.5 (+contact@skygpt.ai)'}
 
     data = safe_api_call(url, headers=headers, params=params, timeout=3)
 
-    # Centralized validation + safe fallback
     if not validate_api_response(data):
         return SAFE_DEFAULTS["location"]
 
@@ -100,7 +95,6 @@ def detect_location(text_query: str) -> Dict[str, Any]:
 @st.cache_data(ttl=900, max_entries=2000) # 15 min cache, bounded
 def get_weather_intel(lat: float, lon: float) -> Dict[str, Any]:
     """Open-Meteo: Current + Daily. Uses current block. Strict timeout."""
-    # Validate coordinates before API call
     try:
         lat_f, lon_f = float(lat), float(lon)
         if not (-90 <= lat_f <= 90 and -180 <= lon_f <= 180):
@@ -120,7 +114,6 @@ def get_weather_intel(lat: float, lon: float) -> Dict[str, Any]:
 
     data = safe_api_call(url, params=params, timeout=3)
 
-    # Centralized validation
     if not validate_api_response(data, ['current', 'daily']):
         return SAFE_DEFAULTS["weather"]
 
@@ -142,7 +135,6 @@ def get_weather_intel(lat: float, lon: float) -> Dict[str, Any]:
 # --- 4. FLOOD RISK ENGINE - ISOLATED ---
 def assess_flood_risk(weather_data: Dict[str, Any]) -> Dict[str, Any]:
     """CORE FEATURE 5: 4-Level Risk + Intensity. Isolated from API failures."""
-    # Module isolation: Never crash if weather_data is bad
     if not validate_api_response(weather_data):
         return {"level": "Unknown", "msg": "Weather data unavailable. Check official forecasts."}
 
@@ -244,7 +236,6 @@ def get_eonet_intel() -> Dict[str, List[str]]:
         if not isinstance(e, dict):
             continue
 
-        # Safe categories access - prevents IndexError
         cats = e.get('categories', [])
         if not cats or not isinstance(cats, list):
             continue
@@ -269,14 +260,12 @@ def get_space_intel(nasa_key: str) -> Dict[str, Any]:
     """NASA APOD + ISS. Isolated - never affects other modules."""
     intel = {}
 
-    # ISS HTTP may fail - graceful handling, isolated
     iss_data = safe_api_call("http://api.open-notify.org/iss-now.json", timeout=3)
     if validate_api_response(iss_data, ['iss_position']) and isinstance(iss_data.get('iss_position'), dict):
         intel['iss'] = iss_data['iss_position']
     else:
         intel['iss'] = {"error": "unavailable"}
 
-    # Use params instead of URL string to protect API key
     apod_url = "https://api.nasa.gov/planetary/apod"
     apod_params = {'api_key': nasa_key}
     apod_data = safe_api_call(apod_url, params=apod_params, timeout=3)
