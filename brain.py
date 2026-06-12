@@ -15,7 +15,7 @@ DetectorFactory.seed = 0
 GEMINI_KEY = st.secrets.get("GEMINI_KEY")
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    MODEL = genai.GenerativeModel('gemini-2.5-flash') # Updated 2026 model
+    MODEL = genai.GenerativeModel('gemini-2.5-flash')
 else:
     MODEL = None
 
@@ -87,7 +87,6 @@ def detect_user_language(text):
 @lru_cache(maxsize=256)
 def extract_location(text, lang_code):
     """v4.0: Regex + Dictionary + Gemini Fallback. Never truncates names."""
-
     # Step 1: Regex - Extract capitalized words + known locations
     text_clean = re.sub(r'[^\w\s]', ' ', text.lower())
     words = text_clean.split()
@@ -106,11 +105,10 @@ def extract_location(text, lang_code):
     # Step 2: Regex for Capitalized words in original text
     capitalized = re.findall(r'\b[A-Z][a-z]+\b', text)
     if capitalized:
-        # Filter out common words
         stopwords = {'Weather', 'Rain', 'Today', 'Tomorrow', 'Will', 'Is', 'The', 'Ko', 'Ma'}
         candidates = [w for w in capitalized if w not in stopwords]
         if candidates:
-            return candidates[0] # Return first valid location
+            return candidates[0]
 
     # Step 3: Gemini Fallback for complex cases
     if not MODEL:
@@ -133,9 +131,7 @@ def build_memory_context(chat_history):
     """Extracts last location and intent from last 4 messages for follow-ups."""
     if not chat_history or len(chat_history) < 2:
         return {}
-
     memory = {}
-    # Check last 4 messages for location
     for msg in reversed(chat_history[-4:]):
         if msg["role"] == "assistant" and "location" in msg.get("context", {}):
             memory["last_location"] = msg["context"]["location"]["display"]
@@ -162,9 +158,8 @@ def get_ai_response(user_prompt, context_data, chat_history):
         if "last_location" in memory_context:
             user_prompt = f"Weather tomorrow in {memory_context['last_location']}"
         else:
-            return get_ai_response_multilingual("Ask user for location for tomorrow forecast", {"error": "no_location"}, chat_history)
+            return "📍 Location chaina. Kripaya sahar ko naam lekhnus."
 
-    # Truncate history for performance
     memory = chat_history[-6:] if len(chat_history) > 6 else chat_history
 
     system_prompt = f"""
@@ -198,3 +193,7 @@ def get_ai_response(user_prompt, context_data, chat_history):
 def get_ai_response_multilingual(user_prompt, context_data, chat_history):
     """Wrapper for backward compatibility with app.py"""
     return get_ai_response(user_prompt, context_data, chat_history)
+
+def extract_location_multilingual(text, lang_code):
+    """Wrapper for backward compatibility"""
+    return extract_location(text, lang_code)
