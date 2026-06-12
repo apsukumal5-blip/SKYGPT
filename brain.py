@@ -39,32 +39,39 @@ def detect_user_language(text):
         return 'en'
 
 def extract_location_multilingual(text, lang_code):
-    """NLP Location Extraction that understands local names"""
+
+    """NLP Location Extraction v3.2 - Handles Romanized + Mixed Language"""
     if not MODEL: return None
     lang_name = LANGUAGE_MAP.get(lang_code, 'English')
 
-    prompt = f"""You are a global location expert. Extract the specific location from this query in {lang_name}.
-    Understand villages, wards, mountains, rivers, airports in local language.
-    Return ONLY location name. If "my village/city" or no location, return "None".
-
+    prompt = f"""You are an expert in extracting locations from mixed language queries. 
+    User language: {lang_name}
+    
+    TASK: Extract ONLY the location name. Remove all question words, weather words, time words.
+    
+    CRITICAL RULES:
+    1. Romanized Nepali/Hindi: "Kathmandu KO voli" -> Kathmandu
+    2. Remove: ma, ko, ka, ko, le, bata, dekhi, samma, kasto, cha, xa, huncha, hola, will, is, the, weather, rain, tomorrow, today
+    3. Keep: Everest Base Camp, Ward 5 Dalli Rajhara, New York, Tokyo
+    4. If no location: return "None"
+    
     Examples:
-    Nepali "पोखरामा भोलि पानी पर्छ?" -> Pokhara
-    Hindi "दिल्ली में बारिश होगी क्या?" -> Delhi
-    Spanish "¿Lloverá mañana en Madrid?" -> Madrid
-    Japanese "東京の天気は？" -> Tokyo
-    Arabic "هل ستمطر في دبي؟" -> Dubai
-    Nepali "एभरेस्ट बेस क्याम्पको मौसम" -> Everest Base Camp
-    Nepali "वार्ड ५ डल्ली राजहरा" -> Dalli Rajhara, Ward 5
-
+    "Kathmandu KO voli KO weather kasto xa" -> Kathmandu
+    "Pokhara ma paani parcha?" -> Pokhara
+    "Everest Base Camp ko temperature" -> Everest Base Camp
+    "Delhi me barish hogi kya" -> Delhi
+    "Will it rain tomorrow?" -> None
+    "भोलि पोखरा कस्तो छ" -> Pokhara
+    
     Query: "{text}"
     Location:"""
     try:
-        response = MODEL.generate_content(prompt, generation_config={"max_output_tokens": 30})
-        loc = response.text.strip().replace('"', '')
+        response = MODEL.generate_content(prompt, generation_config={"max_output_tokens": 25, "temperature": 0})
+        loc = response.text.strip().replace('"', '').replace('.', '')
         return None if loc.lower() in ["none", ""] else loc
     except: return None
-
-def get_ai_response_multilingual(user_prompt, context_data, chat_history):
+    
+    def get_ai_response_multilingual(user_prompt, context_data, chat_history):
     """MASTER BRAIN: Memory + Multilingual + Translation"""
     if not MODEL: return "🧠 AI Brain offline. Check GEMINI_KEY in Secrets."
 
