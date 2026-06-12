@@ -12,7 +12,7 @@ DetectorFactory.seed = 0
 GEMINI_KEY = st.secrets.get("GEMINI_KEY")
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    MODEL = genai.GenerativeModel('gemini-1.5-flash')
+    MODEL = genai.GenerativeModel('gemini-2.5-pro')
 else:
     MODEL = None
 
