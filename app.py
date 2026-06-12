@@ -1,188 +1,103 @@
 """
-PROJECT: SkyGPT World AI
+PROJECT: SkyGPT World AI v8.0 PRODUCTION
 CREATOR: Saroj Kumal
-MISSION: Global AI-powered Earth Intelligence Platform
-BRAIN: Google Gemini 1.5 Flash
-DATA: NASA, Open-Meteo, OpenStreetMap, USGS, EONET
+MISSION: Global Earth Intelligence Platform
+ARCHITECTURE: Modular, Cached, Scalable
 """
 import streamlit as st
-import requests
-import google.generativeai as genai
 from streamlit_chat import message
-from datetime import datetime, timezone
-import json
+from utils import detect_location, get_weather_intel, assess_flood_risk, assess_landslide_risk
+from utils import get_earthquake_intel, get_eonet_intel, get_space_intel
+from brain import get_skygpt_response
+from datetime import datetime
 
-# --- 1. APP CONFIG & SECRETS ---
-st.set_page_config(
-    page_title="SkyGPT World AI",
-    page_icon="🌍",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
-
-GEMINI_KEY = st.secrets.get("GEMINI_KEY")
+# --- 1. APP CONFIG ---
+st.set_page_config(page_title="SkyGPT World AI", page_icon="🌍", layout="wide")
 NASA_KEY = st.secrets.get("NASA_KEY", "DEMO_KEY")
 CREATOR = "Saroj Kumal"
 
-if GEMINI_KEY:
-    genai.configure(api_key=GEMINI_KEY)
-    MODEL = genai.GenerativeModel('gemini-1.5-flash')
-else:
-    st.error("⚠️ AI Brain OFF. Please add GEMINI_KEY in Streamlit Secrets.")
-    st.stop()
-
-# --- 2. UI: DARK THEME & HEADER ---
+# --- 2. UI: PROFESSIONAL HEADER + CSS ---
 st.markdown("""
 <style>
-   .main-header {text-align: center; background: linear-gradient(90deg, #0E1117, #1E3A8A, #0E1117);
-                  padding: 1rem; border-radius: 10px; margin-bottom: 1rem;}
-   .st-emotion-cache-16txtl3 {padding: 1rem 2rem 1rem;}
+  .main-header {text-align: center; background: radial-gradient(circle, #1E3A8A, #0B0F19);
+                  padding: 1.5rem; border-radius: 15px; margin-bottom: 1rem; border: 1px solid #4A90E2;}
+  .stChatMessage {background-color: #151B2B; border-radius: 10px;}
+  .loading-text {text-align: center; color: #4A90E2; animation: pulse 2s infinite;}
+   @keyframes pulse {0% {opacity: 1;} 50% {opacity: 0.5;} 100% {opacity: 1;}}
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown(f"""
 <div class="main-header">
-    <h1>🌍 SkyGPT World AI</h1>
-    <p>Ask Earth Anything | Built by {CREATOR}</p>
+    <h1 style='margin:0;'>🌍 SkyGPT World AI</h1>
+    <p style='margin:0; opacity:0.8;'>Ask Earth Anything | Built by {CREATOR}</p>
 </div>
 """, unsafe_allow_html=True)
 
-# --- 3. CORE MODULES: DATA SOURCES ---
+# --- 3. SIDEBAR: SPACE MODULE ---
+with st.sidebar:
+    st.header("🚀 Space Intelligence")
+    with st.spinner("Loading NASA Data..."):
+        space_data = get_space_intel(NASA_KEY)
+    if 'iss' in space_data:
+        st.metric("ISS Current Location", f"{space_data['iss']['latitude'][:5]}, {space_data['iss']['longitude'][:5]}")
+    if 'apod' in space_data:
+        st.image(space_data['apod']['url'], caption=space_data['apod']['title'])
+        with st.expander("NASA APOD Details"): st.write(space_data['apod']['desc'])
 
-def get_geocoding(location_text):
-    """OpenStreetMap Geocoding: Free, Worldwide"""
-    try:
-        url = f"https://nominatim.openstreetmap.org/search?q={location_text}&format=json&limit=1"
-        res = requests.get(url, headers={'User-Agent': 'SkyGPT-SarojKumal'}, timeout=5).json()
-        if res:
-            return float(res[0]['lat']), float(res[0]['lon']), res[0]['display_name'].split(',')[0]
-    except: return None, None, "Kathmandu"
-    return 27.7172, 85.3240, "Kathmandu"
+    st.divider()
+    st.header("🌋 Global Alerts")
+    quakes = get_earthquake_intel()
+    if quakes: st.write(f"**Latest Quake:** M{quakes[0]['mag']} - {quakes[0]['place']}")
+    eonet = get_eonet_intel()
+    if eonet['wildfire']: st.write(f"**Active Wildfire:** {eonet['wildfire'][0]}")
 
-def get_weather_intel(lat, lon):
-    """Open-Meteo: Free Weather, Rain, Wind. No Key Needed."""
-    try:
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true&hourly=precipitation_probability,rain&daily=precipitation_sum&timezone=auto"
-        data = requests.get(url, timeout=5).json()
-        current = data['current_weather']
-        rain_prob = data['hourly']['precipitation_probability'][0]
-        rain_sum = data['daily']['precipitation_sum'][0]
-        return {
-            "temp": f"{current['temperature']}°C", "wind": f"{current['windspeed']} km/h",
-            "rain_prob": f"{rain_prob}%", "rain_24h": f"{rain_sum} mm", "code": current['weathercode']
-        }
-    except: return {"error": "Weather data unavailable"}
-
-def get_disaster_intel(lat, lon):
-    """NASA EONET: Wildfire, Cyclone, Flood. USGS: Earthquake."""
-    intel = {}
-    try: # NASA EONET
-        eonet = requests.get("https://eonet.gsfc.nasa.gov/api/v3/events?limit=5&status=open", timeout=5).json()
-        intel['wildfire'] = [e['title'] for e in eonet['events'] if e['categories'][0]['id'] == 'wildfires']
-        intel['cyclone'] = [e['title'] for e in eonet['events'] if e['categories'][0]['id'] == 'severeStorms']
-    except: pass
-    try: # USGS Earthquake
-        quake = requests.get("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson", timeout=5).json()
-        intel['earthquake'] = [f"M{q['properties']['mag']} - {q['properties']['place']}" for q in quake['features'][:3]]
-    except: pass
-    return intel
-
-def get_nasa_intel():
-    """NASA APOD, ISS Location"""
-    intel = {}
-    try:
-        iss = requests.get("http://api.open-notify.org/iss-now.json", timeout=3).json()
-        intel['iss'] = f"Lat: {iss['iss_position']['latitude']}, Lon: {iss['iss_position']['longitude']}"
-    except: pass
-    try:
-        apod = requests.get(f"https://api.nasa.gov/planetary/apod?api_key={NASA_KEY}", timeout=5).json()
-        intel['apod'] = {"title": apod['title'], "url": apod['url']}
-    except: pass
-    return intel
-
-# --- 4. AI BRAIN: GEMINI CORE LOGIC ---
-def ask_skygpt_brain(prompt, context_data):
-    """Core LLM function with Rules from Spec"""
-    system_prompt = f"""
-    You are SkyGPT World AI, created by Saroj Kumal. You are a professional Earth Intelligence Assistant.
-    RULES:
-    1. Never invent live data. Use ONLY this context: {json.dumps(context_data)}
-    2. Explain in simple language. English, Nepali, Hindi support.
-    3. Mention uncertainty if data is incomplete: "Data anusar..."
-    4. For weather disasters, ALWAYS give safety guidance.
-    5. Be concise and professional. Use ✅ ❌ ⚠️ emojis for risk levels.
-    6. Respond in the user's language.
-    7. For Flood/Landslide: Use Risk levels: Low, Moderate, High.
-
-    CONTEXT DATA: {json.dumps(context_data)}
-    USER QUESTION: {prompt}
-    """
-    try:
-        response = MODEL.generate_content(system_prompt)
-        return response.text
-    except Exception as e:
-        return f"🧠 AI Brain Error: {e}. Check Gemini API Key."
-
-# --- 5. INTELLIGENCE ENGINES: RISK ASSESSMENT ---
-
-def assess_flood_risk(weather):
-    """CORE FEATURE 3: Flood Risk Intelligence"""
-    if 'error' in weather: return "Data unavailable"
-    rain_24h = float(weather['rain_24h'].split()[0])
-    if rain_24h > 100: return "🔴 High: >100mm rain. Flash flood risk. Avoid rivers, move to higher ground."
-    elif rain_24h > 50: return "🟠 Moderate: 50-100mm rain. Waterlogging possible. Stay alert."
-    else: return "🟢 Low: <50mm rain. No immediate flood risk."
-
-def assess_landslide_risk(weather, location):
-    """CORE FEATURE 4: Landslide Risk"""
-    if 'error' in weather: return "Data unavailable"
-    rain_24h = float(weather['rain_24h'].split()[0])
-    mountain_keywords = ['lukla', 'everest', 'pokhara', 'manang', 'mustang', 'himal']
-    if any(k in location.lower() for k in mountain_keywords) and rain_24h > 75:
-        return "🔴 High: Heavy rain in mountain region. Landslide risk. Avoid travel on hilly roads."
-    elif rain_24h > 40: return "🟠 Moderate: Monitor slopes if continuous rain."
-    else: return "🟢 Low: No significant landslide risk."
-
-# --- 6. MAIN APP: CHAT INTERFACE ---
+# --- 4. CHAT INTERFACE: MEMORY + UX ---
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "Namaste! I am SkyGPT World AI. Ask me about weather, floods, earthquakes, mountains, or space. Eg: 'Lukla ma aaja landslide risk cha?'"}]
+    st.session_state.messages = [{"role": "assistant", "content": "Namaste! I am SkyGPT World AI. Ask me about weather, floods, earthquakes, or space for any location worldwide. Eg: 'Tokyo ma typhoon ko risk cha?'"}]
 
-# Display chat history
 for i, msg in enumerate(st.session_state.messages):
-    message(msg["content"], is_user=msg["role"] == "user", key=str(i))
+    message(msg["content"], is_user=msg["role"] == "user", key=f"msg_{i}", avatar_style="initials")
 
-# Chat input
+# --- 5. CORE LOGIC: USER INPUT ---
 if prompt := st.chat_input("Ask Earth Anything..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
-    message(prompt, is_user=True, key=str(len(st.session_state.messages)))
+    message(prompt, is_user=True, key=f"user_{len(st.session_state.messages)}")
 
-    with st.spinner("🧠 SkyGPT Brain analyzing Earth data..."):
-        # Step 1: Get Location
-        lat, lon, loc_name = get_geocoding(prompt)
+    with st.status("🧠 SkyGPT Analyzing...", expanded=False) as status:
+        st.write("🌐 Detecting location...")
+        loc_data = detect_location(prompt)
 
-        # Step 2: Gather All Intel
-        context_data = {
-            "location": loc_name, "coords": f"{lat}, {lon}",
-            "weather": get_weather_intel(lat, lon),
-            "disasters": get_disaster_intel(lat, lon),
-            "nasa": get_nasa_intel(),
-            "risk_analysis": {
-                "flood": assess_flood_risk(get_weather_intel(lat, lon)),
-                "landslide": assess_landslide_risk(get_weather_intel(lat, lon), loc_name)
+        if not loc_data['found']:
+            response = "📍 Location detect bhayena. Please specify a city or country. Eg: 'Lukla ko weather k cha?'"
+            status.update(label="Location needed", state="error")
+        else:
+            st.write(f"🛰️ Fetching data for {loc_data['name']}...")
+            weather = get_weather_intel(loc_data['lat'], loc_data['lon'])
+            disasters = {"earthquake": get_earthquake_intel(), "eonet": get_eonet_intel()}
+            space = get_space_intel(NASA_KEY)
+
+            st.write("⚡ Calculating risks...")
+            context = {
+                "location": loc_data['name'], "coords": f"{loc_data['lat']}, {loc_data['lon']}",
+                "weather": weather, "flood_risk": assess_flood_risk(weather),
+                "landslide_risk": assess_landslide_risk(weather, loc_data['name']),
+                "disasters": disasters, "space": space, "timestamp": str(datetime.now(timezone.utc))
             }
-        }
 
-        # Step 3: Ask Gemini Brain
-        response = ask_skygpt_brain(prompt, context_data)
-        st.session_state.messages.append({"role": "assistant", "content": response})
-        message(response, key=str(len(st.session_state.messages)))
+            st.write("🤖 Generating AI response...")
+            response = get_skygpt_response(prompt, context, st.session_state.messages)
+            status.update(label="Analysis Complete", state="complete")
 
-# --- 7. FOOTER ---
+    st.session_state.messages.append({"role": "assistant", "content": response})
+    message(response, key=f"bot_{len(st.session_state.messages)}")
+
+# --- 6. FOOTER ---
 st.divider()
 st.markdown(f"""
-<div style='text-align: center; color: grey; font-size: 12px;'>
+<div style='text-align: center; color: #6B7280; font-size: 12px;'>
     <b>SkyGPT World AI</b> | Created by {CREATOR} | Powered by Google Gemini <br>
-    Data Sources: NASA, Weather APIs, OpenStreetMap, USGS <br>
+    Data Sources: NASA, Open-Meteo, OpenStreetMap, USGS <br>
     <i>Ask Earth Anything</i>
 </div>
 """, unsafe_allow_html=True)
