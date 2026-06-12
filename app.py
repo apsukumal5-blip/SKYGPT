@@ -49,7 +49,11 @@ if prompt := st.chat_input("Ask Earth Anything..."):
             if st.session_state.current_location:
                 loc_data = st.session_state.current_location
             else:
-                response = get_ai_response_multilingual("Ask user for location", {"error": "no_location"}, st.session_state.messages)
+                response = get_ai_response_multilingual(
+                    "Ask user for location",
+                    {"error": "no_location"},
+                    st.session_state.messages
+                )
                 st.session_state.messages.append({"role": "assistant", "content": response})
                 typing_placeholder.empty()
                 st.rerun()
@@ -57,24 +61,33 @@ if prompt := st.chat_input("Ask Earth Anything..."):
         # Step 2: Multi-Geocoder Fallback
         if not loc_data:
             results = geocode_nominatim(location_query)
-            if not results: results = geocode_photon(location_query)
+            if not results:
+                results = geocode_photon(location_query)
 
             if not results:
-                response = f"📍 Could not find '{location_query}'. Try: 'City, Country' format."
+                response = get_ai_response_multilingual(
+                    f"I could not find location '{location_query}'. Ask user to specify city and country clearly.",
+                    {"error": "location_not_found", "query": location_query},
+                    st.session_state.messages
+                )
                 st.session_state.messages.append({"role": "assistant", "content": response})
                 typing_placeholder.empty()
                 st.rerun()
             elif len(results) > 1:
                 options = "\n".join([f"{i+1}. {r['display']}" for i, r in enumerate(results[:3])])
-                response = f"📍 Multiple locations found for '{location_query}'. Which one?\n{options}"
+                response = get_ai_response_multilingual(
+                    f"Multiple locations found for '{location_query}'. Options: {options}. Ask user to choose.",
+                    {"error": "multiple_locations", "options": options},
+                    st.session_state.messages
+                )
                 st.session_state.messages.append({"role": "assistant", "content": response})
                 typing_placeholder.empty()
                 st.rerun()
             else:
                 loc_data = results[0]
-                st.session_state.current_location = loc_data # Save for memory
+                st.session_state.current_location = loc_data
 
-        # Step 3: Gather All Intel
+        # Step 3: Gather All Intel - YEHA INDENT MILAYO
         weather = get_weather(loc_data['lat'], loc_data['lon'])
         disasters = {"earthquake": get_earthquakes(), "eonet": get_eonet_events()}
         space = {"apod": get_nasa_apod(NASA_KEY), "iss": get_iss_location()}
@@ -88,12 +101,8 @@ if prompt := st.chat_input("Ask Earth Anything..."):
             "space": space
         }
 
-        # Step 4: Get AI Response
-        response = get_ai_response_multilingual(
-    f"I could not find location '{location_query}'. Ask user to specify city and country clearly.", 
-    {"error": "location_not_found", "query": location_query}, 
-    st.session_state.messages
-        )
+        # Step 4: Get AI Response - YEHA INDENT MILAYO
+        response = get_ai_response_multilingual(prompt, context, st.session_state.messages)
 
         typing_placeholder.empty()
         st.session_state.messages.append({"role": "assistant", "content": response})
