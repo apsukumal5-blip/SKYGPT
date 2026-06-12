@@ -89,7 +89,11 @@ if prompt := st.chat_input("Ask Earth Anything..."):
         }
 
         # Step 4: Get AI Response
-        response = get_ai_response_multilingual(prompt, context, st.session_state.messages)
+        response = get_ai_response_multilingual(
+    f"I could not find location '{location_query}'. Ask user to specify city and country clearly.", 
+    {"error": "location_not_found", "query": location_query}, 
+    st.session_state.messages
+        )
 
         typing_placeholder.empty()
         st.session_state.messages.append({"role": "assistant", "content": response})
