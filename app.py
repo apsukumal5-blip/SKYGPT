@@ -19,20 +19,28 @@ st.markdown("""
 # --- SETUP & SECURITY ---
 def setup_ai():
     try:
+        # Streamlit secrets बाट API Key लिने
         api_key = st.secrets["GOOGLE_API_KEY"]
         genai.configure(api_key=api_key)
-        return genai.GenerativeModel('gemini-1.5-flash')
+        
+        # यहाँ 'gemini-pro' प्रयोग गर्दा सबैभन्दा धेरै स्टेबल हुन्छ
+        model = genai.GenerativeModel('gemini-pro')
+        return model
     except Exception as e:
-        st.error("AI Brain connection failed. Check your API Keys in Secrets.")
+        st.error(f"AI Brain connection failed: {e}")
         return None
 
 model = setup_ai()
 
 # --- DATA LAYER ---
-@st.cache_data(ttl=900) # Cache for 15 minutes
+@st.cache_data(ttl=900)
 def get_weather(lat, lon):
     url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
-    return requests.get(url, timeout=5).json()
+    try:
+        response = requests.get(url, timeout=5)
+        return response.json()
+    except:
+        return None
 
 # --- CORE LOGIC ---
 def get_ai_response(question, context):
@@ -45,7 +53,9 @@ def get_ai_response(question, context):
     - Be concise, professional, and provide safety guidance for risks.
     - Respond in the language of the user (Nepali, Hindi, or English).
     """
-    response = model.generate_content(f"{system_prompt} \n Data: {context} \n Question: {question}")
+    # model.generate_content प्रयोग गर्ने सही तरिका
+    prompt = f"{system_prompt} \n Data: {context} \n Question: {question}"
+    response = model.generate_content(prompt)
     return response.text
 
 # --- APP LAYOUT ---
@@ -56,12 +66,14 @@ question = st.text_input("Search Earth Intel:", placeholder="e.g., Will it rain 
 
 if question:
     with st.spinner("Analyzing global Earth data..."):
-        # Default Location: Kathmandu
         data = get_weather(27.7172, 85.3240)
         
         if model:
-            answer = get_ai_response(question, data)
-            st.markdown(f"<div class='chat-container'>{answer}</div>", unsafe_allow_html=True)
+            try:
+                answer = get_ai_response(question, data)
+                st.markdown(f"<div class='chat-container'>{answer}</div>", unsafe_allow_html=True)
+            except Exception as e:
+                st.error("AI Brain ले अहिले उत्तर दिन सकेन। कृपया फेरि प्रयास गर्नुहोस्।")
         else:
             st.warning("AI Brain is offline.")
 
@@ -71,4 +83,3 @@ st.markdown("""
     **SkyGPT World AI** | Built by Saroj Kumal  
     *Powered by Google Gemini | Data: NASA, NOAA, Open-Meteo*
     """, unsafe_allow_html=True)
-        
