@@ -2,80 +2,73 @@ import streamlit as st
 import streamlit.components.v1 as components
 import requests
 import google.generativeai as genai
+import os
 
-# 1. Page Config
+# --- PAGE CONFIG ---
 st.set_page_config(page_title="SkyGPT World AI", page_icon="🌍", layout="wide")
 
-# CSS - Professional Space Branding
+# --- UI STYLE ---
 st.markdown("""
     <style>
-    .stApp { background: linear-gradient(rgba(0,0,0,0.8), rgba(0,0,0,0.8)), url('https://images.unsplash.com/photo-1451187580459-43490279c0fa'); 
-             background-size: cover; color: #ffffff; }
-    h1 { color: #ffffff; text-shadow: 2px 2px 4px #000000; }
-    .stInfo { background-color: rgba(255, 255, 255, 0.1); color: #ffffff; border: 1px solid #ffffff; }
+    .stApp { background: #0b0e14; color: #ffffff; }
+    h1 { color: #ffffff; text-align: center; }
+    .chat-container { border: 1px solid #333; padding: 20px; border-radius: 10px; background: #161b22; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. Setup (Gemini API with Error Handling)
-if "GOOGLE_API_KEY" in st.secrets:
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-else:
-    st.error("Configuration Error: GOOGLE_API_KEY not found in Streamlit Secrets.")
-    st.stop()
-
-@st.cache_data(ttl=600)
-def get_weather_data(lat, lon):
-    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
+# --- SETUP & SECURITY ---
+def setup_ai():
     try:
-        response = requests.get(url, timeout=5)
-        return response.json() if response.status_code == 200 else None
-    except Exception:
+        api_key = st.secrets["GOOGLE_API_KEY"]
+        genai.configure(api_key=api_key)
+        return genai.GenerativeModel('gemini-1.5-flash')
+    except Exception as e:
+        st.error("AI Brain connection failed. Check your API Keys in Secrets.")
         return None
 
-def get_ai_brain_answer(question, data):
-    try:
-        # Using gemini-1.5-flash
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        system_instruction = """
-        You are SkyGPT, created by Saroj Kumal. 
-        Mission: Provide accurate info on Earth, weather, disasters, and environment.
-        Rules: Use provided data, avoid guessing, be concise, and provide safety advice for risks.
-        """
-        prompt = f"{system_instruction} \n Data: {data} \n Question: {question}"
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"AI Brain Error: {str(e)}"
+model = setup_ai()
 
-# UI
-st.markdown("<h1 style='text-align: center;'>🌍 SkyGPT World AI</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #add8e6;'>Ask Earth Anything | Built by Saroj Kumal</p>", unsafe_allow_html=True)
+# --- DATA LAYER ---
+@st.cache_data(ttl=900) # Cache for 15 minutes
+def get_weather(lat, lon):
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
+    return requests.get(url, timeout=5).json()
 
-question = st.text_input(" ", placeholder="Ask about weather, drones, or space...")
+# --- CORE LOGIC ---
+def get_ai_response(question, context):
+    system_prompt = """
+    You are SkyGPT, a professional Earth Intelligence Assistant by Saroj Kumal.
+    Mission: Provide accurate info on weather, disasters, mountains, and space.
+    Rules: 
+    - Always use provided data.
+    - If data is missing, admit uncertainty.
+    - Be concise, professional, and provide safety guidance for risks.
+    - Respond in the language of the user (Nepali, Hindi, or English).
+    """
+    response = model.generate_content(f"{system_prompt} \n Data: {context} \n Question: {question}")
+    return response.text
+
+# --- APP LAYOUT ---
+st.title("🌍 SkyGPT World AI")
+st.markdown("<p style='text-align: center;'>Ask Earth Anything | Built by Saroj Kumal</p>", unsafe_allow_html=True)
+
+question = st.text_input("Search Earth Intel:", placeholder="e.g., Will it rain in Chitwan? Is the ISS visible?")
 
 if question:
-    lat, lon = 27.7172, 85.3240 # Default coordinates
-    
-    st.divider()
-    with st.spinner("SkyGPT Brain analyzing Earth's data..."):
-        data = get_weather_data(lat, lon)
-        if data:
-            ai_response = get_ai_brain_answer(question, data)
-            st.info(f"**SkyGPT Intelligence:** {ai_response}")
+    with st.spinner("Analyzing global Earth data..."):
+        # Default Location: Kathmandu
+        data = get_weather(27.7172, 85.3240)
+        
+        if model:
+            answer = get_ai_response(question, data)
+            st.markdown(f"<div class='chat-container'>{answer}</div>", unsafe_allow_html=True)
         else:
-            st.error("Data currently unavailable. Please try again later.")
+            st.warning("AI Brain is offline.")
 
-    # 3D Globe visualization
-    components.html(f"""
-    <div id="globe" style="width:100%; height:300px; background:black;"></div>
-    <script src="https://files.worldwind.arc.nasa.gov/artifactory/web/0.11.0/worldwind.min.js"></script>
-    <script>
-        var wwd = new WorldWind.WorldWindow("globe");
-        wwd.addLayer(new WorldWind.BMNGOneImageLayer());
-        wwd.addLayer(new WorldWind.ViewControlsLayer(wwd));
-    </script>
-    """, height=300)
-
+# --- FOOTER ---
 st.divider()
-st.markdown("<p style='text-align: center; color: white; font-size:12px;'>Data Source: NASA.gov, NOAA, Open-Meteo | © 2026 Saroj Kumal</p>", unsafe_allow_html=True)
-    
+st.markdown("""
+    **SkyGPT World AI** | Built by Saroj Kumal  
+    *Powered by Google Gemini | Data: NASA, NOAA, Open-Meteo*
+    """, unsafe_allow_html=True)
+        
