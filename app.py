@@ -3,7 +3,7 @@ import streamlit.components.v1 as components
 import requests
 import google.generativeai as genai
 
-# १. Page Config
+# 1. Page Config
 st.set_page_config(page_title="SkyGPT World AI", page_icon="🌍", layout="wide")
 
 # CSS - Professional Space Branding
@@ -16,39 +16,45 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# २. Setup (Gemini API)
-genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+# 2. Setup (Gemini API with Error Handling)
+if "GOOGLE_API_KEY" in st.secrets:
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+else:
+    st.error("Configuration Error: GOOGLE_API_KEY not found in Streamlit Secrets.")
+    st.stop()
 
 @st.cache_data(ttl=600)
 def get_weather_data(lat, lon):
     url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
-    response = requests.get(url, timeout=5)
-    return response.json() if response.status_code == 200 else None
+    try:
+        response = requests.get(url, timeout=5)
+        return response.json() if response.status_code == 200 else None
+    except Exception:
+        return None
 
 def get_ai_brain_answer(question, data):
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    # SkyGPT Mission अनुसारको Prompt
-    system_instruction = """
-    तपाईं SkyGPT हुनुहुन्छ, जसको सिर्जनाकर्ता सरोज कुमाल हुनुहुन्छ। 
-    तपाईंको काम पृथ्वी, मौसम, प्रकोप, र पर्यावरणबारे सही जानकारी दिनु हो।
-    नियमहरू:
-    - NASA र मौसम डेटा प्रयोग गर्नुहोस्।
-    - अनुमानित कुरा नगर्नुहोस्।
-    - छोटो र सरल भाषामा बोल्नुहोस्।
-    - जोखिमपूर्ण अवस्थामा सुरक्षा सल्लाह (Safety Advice) दिनुहोस्।
-    """
-    prompt = f"{system_instruction} \n डेटा: {data} \n प्रश्न: {question}"
-    response = model.generate_content(prompt)
-    return response.text
+    try:
+        # Using gemini-1.5-flash
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        system_instruction = """
+        You are SkyGPT, created by Saroj Kumal. 
+        Mission: Provide accurate info on Earth, weather, disasters, and environment.
+        Rules: Use provided data, avoid guessing, be concise, and provide safety advice for risks.
+        """
+        prompt = f"{system_instruction} \n Data: {data} \n Question: {question}"
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"AI Brain Error: {str(e)}"
 
-# --- UI ---
+# UI
 st.markdown("<h1 style='text-align: center;'>🌍 SkyGPT World AI</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #add8e6;'>Ask Earth Anything | Built by Saroj Kumal</p>", unsafe_allow_html=True)
 
 question = st.text_input(" ", placeholder="Ask about weather, drones, or space...")
 
 if question:
-    lat, lon = 27.7172, 85.3240 # Default (Kathmandu)
+    lat, lon = 27.7172, 85.3240 # Default coordinates
     
     st.divider()
     with st.spinner("SkyGPT Brain analyzing Earth's data..."):
@@ -57,7 +63,7 @@ if question:
             ai_response = get_ai_brain_answer(question, data)
             st.info(f"**SkyGPT Intelligence:** {ai_response}")
         else:
-            st.error("अहिले डेटा उपलब्ध भएन। कृपया पछि प्रयास गर्नुहोस्।")
+            st.error("Data currently unavailable. Please try again later.")
 
     # 3D Globe visualization
     components.html(f"""
