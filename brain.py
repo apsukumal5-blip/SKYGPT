@@ -102,7 +102,7 @@ def sanitize_query(query: str) -> str:
         r'(localhost|127\.0\.0\.1|0\.0\.0\.0)',
         r'(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)',
         r'(169\.254\.|metadata\.google|metadata\.azure|169\.254\.169\.254)',
-        r'(file://|ftp://|dict://)'
+        r'(file://|ftp://|dict://|gopher://)'
     ]
     for pattern in ssrf_patterns:
         if re.search(pattern, query, re.I):
