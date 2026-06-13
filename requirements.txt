@@ -1,11 +1,2 @@
 streamlit==1.38.0
-google-generativeai>=0.8.3,<1.0.0
-aiohttp==3.9.5
 requests==2.32.3
-pydantic==2.8.2
-diskcache==5.6.3
-langdetect==1.0.9
-langid==1.1.6
-rapidfuzz==3.9.6
-structlog==24.4.0
-orjson==3.10.7
