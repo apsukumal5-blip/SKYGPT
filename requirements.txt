@@ -4,3 +4,4 @@ google-ai-generativelanguage==0.6.4
 google-api-core==2.19.1
 protobuf==4.25.3
 rich==13.7.1
+aiohttp==3.9.5
