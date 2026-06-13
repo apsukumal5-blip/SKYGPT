@@ -10,6 +10,7 @@ import time
 import hashlib
 import logging
 import re
+import asyncio # 🔥 YO LINE THAPIYO
 from typing import Optional, Dict, Any, List
 
 # --- 1. LOGGING SETUP ---
@@ -123,7 +124,6 @@ with st.sidebar:
     st.markdown("### 🛰️ Live Space Data")
     space_data = {"iss": get_cached_iss()}
     quake_data = get_cached_earthquakes()
-
     # v3.2: Safe render with fallback
     try:
         render_sidebar(space_data, quake_data)
@@ -183,11 +183,11 @@ if prompt := st.chat_input("Ask Earth Anything..."):
                     loc_data = st.session_state.current_location
                     logger.info(f"Using cached location: {loc_data['display']}")
                 else:
-                    response = get_ai_response_multilingual(
+                    response = asyncio.run(get_ai_response_multilingual( # 🔥 YO LINE CHANGE BHAYO
                         "Ask user for location politely",
                         {"error": "no_location", "lang": lang_code},
                         st.session_state.messages
-                    )
+                    ))
                     st.session_state.messages.append({"role": "assistant", "content": response})
                     st.rerun() # Only rerun here, safe exit
 
@@ -195,20 +195,20 @@ if prompt := st.chat_input("Ask Earth Anything..."):
             if not loc_data and location_query:
                 results = cached_geocode(location_query)
                 if not results:
-                    response = get_ai_response_multilingual(
+                    response = asyncio.run(get_ai_response_multilingual( # 🔥 YO LINE CHANGE BHAYO
                         f"I could not find location '{location_query}'. Ask user to specify city and country clearly.",
                         {"error": "location_not_found", "query": location_query, "lang": lang_code},
                         st.session_state.messages
-                    )
+                    ))
                     st.session_state.messages.append({"role": "assistant", "content": response})
                     st.rerun()
                 elif len(results) > 1:
                     options = "\n".join([f"{i+1}. {r['display']}" for i, r in enumerate(results[:3])])
-                    response = get_ai_response_multilingual(
+                    response = asyncio.run(get_ai_response_multilingual( # 🔥 YO LINE CHANGE BHAYO
                         f"Multiple locations found for '{location_query}'. Options: {options}. Ask user to choose number.",
                         {"error": "multiple_locations", "options": options, "lang": lang_code},
                         st.session_state.messages
-                    )
+                    ))
                     st.session_state.messages.append({"role": "assistant", "content": response})
                     st.rerun()
                 else:
@@ -239,7 +239,7 @@ if prompt := st.chat_input("Ask Earth Anything..."):
             }
 
             # Step 4: Get AI Response - v3.2: ERROR BOUNDARY
-            response = get_ai_response_multilingual(prompt, context, st.session_state.messages)
+            response = asyncio.run(get_ai_response_multilingual(prompt, context, st.session_state.messages)) # 🔥 YO LINE CHANGE BHAYO
 
             # v3.2: SECURITY - Sanitize secrets from response
             response = str(response).replace(NASA_KEY, "***") if NASA_KEY!= "DEMO_KEY" else str(response)
@@ -249,8 +249,8 @@ if prompt := st.chat_input("Ask Earth Anything..."):
             logger.error(f"app_crash: {str(e)[:300]}", exc_info=True)
             response = "Sorry, I encountered a temporary error processing your request. Please try again or rephrase your question. If this persists, our service may be experiencing high load."
 
-    # Add assistant response
-    st.session_state.messages.append({"role": "assistant", "content": response})
+        # Add assistant response
+        st.session_state.messages.append({"role": "assistant", "content": response})
 
     # v3.2: Single rerun at end only - No races
     st.rerun()
