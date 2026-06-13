@@ -251,3 +251,13 @@ def assess_cyclone_risk(weather_data: Optional[Dict[str, Any]]) -> Dict[str, Any
             msg=f"🟢 Low: Wind speed {wind_f:.0f} km/h (sustained). Normal conditions.",
             score=10
 )
+def assess_landslide_risk(weather: dict, location_name: str) -> dict:
+    rain_24h = weather.get('rain_24h', 0)
+    # OLD: himalayan_regions = ['lukla'] matra check garyo
+    # NEW: Global rule - NASA LHASA standard
+    if rain_24h > 100:  # 100mm = Global high threshold
+        return {"level": "HIGH", "msg": f"{rain_24h}mm rain = Global landslide threshold exceeded. Evacuate steep areas."}
+    elif rain_24h > 50:
+        return {"level": "MEDIUM", "msg": f"{rain_24h}mm rain = Moderate risk. Avoid slopes."}
+    else:
+        return {"level": "LOW", "msg": "Low risk currently"}
