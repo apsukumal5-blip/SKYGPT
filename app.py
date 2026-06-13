@@ -257,3 +257,7 @@ if prompt := st.chat_input("Ask Earth Anything..."):
 
 # --- 10. FOOTER ---
 render_footer()
+st.markdown("""
+<link rel="manifest" href="https://raw.githubusercontent.com/.../manifest.json">
+<meta name="theme-color" content="#FF4B4B">
+""", unsafe_allow_html=True)
