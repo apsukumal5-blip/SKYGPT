@@ -187,3 +187,9 @@ def render_footer() -> None:
         <i>Ask Earth Anything</i>
     </div>
     """, unsafe_allow_html=True)
+def render_footer():
+    st.markdown("---")
+    st.error("⚠️ **Disclaimer**: SkyGPT AI estimates only. NOT official warning. For emergencies, call 1149 Nepal / follow local govt. We are NOT liable for decisions based on this app.")
+    col1, col2 = st.columns(2)
+    with col1: st.markdown("[Privacy Policy](https://github.com/...)") 
+    with col2: st.markdown("[Terms: Data deleted in 30 days](https://github.com/...)")
