@@ -5,3 +5,4 @@ google-api-core==2.19.1
 protobuf==4.25.3
 rich==13.7.1
 aiohttp==3.9.5
+aiolimiter==1.1.0
